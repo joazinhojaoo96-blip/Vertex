@@ -72,7 +72,7 @@ static int inflate_raw(const uint8_t *src, size_t src_len, uint8_t *dst,
     return 0;
 }
 
-struct entry {
+struct tsx_zip_entry {
     uint16_t flags;
     uint16_t method;
     uint32_t crc;
@@ -84,7 +84,7 @@ struct entry {
 };
 
 static int extract_entry(const uint8_t *zip, size_t zip_len,
-                         const struct entry *e, const char *out_dir) {
+                         const struct tsx_zip_entry *e, const char *out_dir) {
     if (e->flags & 1) return -1;  // encrypted
     if (e->namelen == 0 || e->namelen > 1024) return -1;
 
@@ -261,7 +261,7 @@ int tsx_zip_extract(const char *zip_path, const char *out_dir) {
             }
         }
 
-        struct entry e = {
+        struct tsx_zip_entry e = {
             .flags = flags, .method = method, .crc = crc,
             .csize = csize, .usize = usize, .lho = lho,
             .name = zip + pos + 46, .namelen = namelen,
