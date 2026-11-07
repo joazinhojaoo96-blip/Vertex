@@ -9,17 +9,65 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
     steps:
       - uses: actions/checkout@v4
 
+      # ── deps ────────────────────────────────────────────────────────────────
+      - name: install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential fakeroot rsync curl perl zip git \
+            libxml2 libtinfo6 zlib1g libplist-utils lzma xz-utils file patchelf
+
+      # ── Theos ───────────────────────────────────────────────────────────────
       - name: install theos
-        uses: Randomblock1/theos-action@v1
+        run: |
+          git clone --depth 1 --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
+      # ── SDKs ────────────────────────────────────────────────────────────────
+      - name: install sdks
+        run: |
+          curl -fsSL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz \
+            | tar -xz --strip-components=1 -C "$HOME/theos/sdks"
+
+      # ── toolchain ───────────────────────────────────────────────────────────
+      # sbingner arm64e clang — built for Ubuntu 18/20/22, works on 22.04
+      - name: install ios toolchain
+        run: |
+          curl -fsSL -o /tmp/tc.tar.lzma \
+            "https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
+          TMP=$(mktemp -d)
+          tar --lzma -xf /tmp/tc.tar.lzma -C "$TMP"
+          mkdir -p "$HOME/theos/toolchain/linux/iphone"
+          mv "$TMP"/ios-arm64e-clang-toolchain/* "$HOME/theos/toolchain/linux/iphone/"
+          rm -rf "$TMP" /tmp/tc.tar.lzma
+          # strip stale RPATH so the system dynamic linker resolves .so files
+          for f in "$HOME/theos/toolchain/linux/iphone/bin"/*; do
+            [ -f "$f" ] && file "$f" | grep -q ELF && patchelf --remove-rpath "$f" 2>/dev/null || true
+          done
+          # verify
+          "$HOME/theos/toolchain/linux/iphone/bin/clang" --version
+
+      # ── ldid ────────────────────────────────────────────────────────────────
+      - name: install ldid
+        run: |
+          curl -fsSL -o "$HOME/theos/bin/ldid" \
+            "https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64"
+          chmod +x "$HOME/theos/bin/ldid"
+          sudo ln -sf "$HOME/theos/bin/ldid" /usr/local/bin/ldid
+
+      # ── build ────────────────────────────────────────────────────────────────
       - name: build package
-        run: make package FINALPACKAGE=1
+        run: |
+          export THEOS="$HOME/theos"
+          make package FINALPACKAGE=1
 
-      - name: collect artifacts
+      # ── collect ──────────────────────────────────────────────────────────────
+      - name: collect debs
         run: |
           mkdir -p dist
           find packages -name '*.deb' -exec cp {} dist/ \;
@@ -27,11 +75,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: vertex-package
+          name: vertex-deb
           path: dist/*
           if-no-files-found: error
 
-      - name: release on tag
+      - name: github release on tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
