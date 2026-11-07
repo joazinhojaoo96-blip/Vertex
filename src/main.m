@@ -1,5 +1,6 @@
 // language: Objective-C, file: src/main.m, CLI driver
 #import <Foundation/Foundation.h>
+#import "ui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -374,8 +375,7 @@ static int cmd_launch(const char *bid) {
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (argc < 2) {
-            usage();
-            return 2;
+            return UIApplicationMain(argc, argv, nil, NSStringFromClass([VertexAppDelegate class]));
         }
 
         // --- network / read-only paths: no exploit boot ---
