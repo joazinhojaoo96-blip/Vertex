@@ -83,7 +83,15 @@ jobs:
         run: |
           export LD_LIBRARY_PATH="${LLVM_LIB:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           export PATH="$THEOS/bin:$PATH"
-          make package FINALPACKAGE=1
+          if ! make package FINALPACKAGE=1 messages=yes 2>&1 | tee /tmp/build.log; then
+            echo "::group::Full Build Error Log"
+            cat /tmp/build.log
+            echo "::endgroup::"
+            tail -n 25 /tmp/build.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
 
       # ── Package .ipa for iPhone / TrollStore ─────────────────
       - name: Package .ipa
