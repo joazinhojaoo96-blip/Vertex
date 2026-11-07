@@ -85,11 +85,10 @@ jobs:
           export PATH="$THEOS/bin:$PATH"
           make package FINALPACKAGE=1
 
-      # ── Package .ipa for TrollStore / Sideload ──────────────
+      # ── Package .ipa for iPhone / TrollStore ─────────────────
       - name: Package .ipa
         run: |
           mkdir -p Payload/Vertex.app
-          # Copy compiled binary and resources
           BIN_PATH=$(find .theos/_ -type f -name vertex 2>/dev/null | head -1)
           if [ -z "$BIN_PATH" ]; then
             BIN_PATH=$(find .theos/obj -type f -name vertex 2>/dev/null | head -1)
@@ -97,55 +96,24 @@ jobs:
           cp "$BIN_PATH" Payload/Vertex.app/vertex
           chmod +x Payload/Vertex.app/vertex
 
-          # Copy hook dylib into Frameworks
           HOOK_PATH=$(find .theos -type f -name "vertexhook.dylib" 2>/dev/null | head -1)
           if [ -n "$HOOK_PATH" ]; then
             mkdir -p Payload/Vertex.app/Frameworks
             cp "$HOOK_PATH" Payload/Vertex.app/Frameworks/
           fi
 
-          # Copy Resources if present
           if [ -d Resources ]; then
             cp -r Resources/* Payload/Vertex.app/ 2>/dev/null || true
           fi
 
-          # Create Info.plist for iOS App
-          cat << 'EOF' > Payload/Vertex.app/Info.plist
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleExecutable</key>
-	<string>vertex</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.vertex.tool</string>
-	<key>CFBundleName</key>
-	<string>Vertex</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>MinimumOSVersion</key>
-	<string>15.0</string>
-	<key>UIDeviceFamily</key>
-	<array>
-		<integer>1</integer>
-		<integer>2</integer>
-	</array>
-</dict>
-</plist>
-EOF
+          cp Info.plist Payload/Vertex.app/Info.plist
 
-          # Pseudo-sign with entitlements
           "$THEOS/bin/ldid" -Sentitlements.plist Payload/Vertex.app/vertex 2>/dev/null || true
 
-          # Create .ipa
           mkdir -p packages
           zip -r9 packages/Vertex.ipa Payload
-          echo "Vertex.ipa successfully built:"
-          ls -la packages/
+          echo "Vertex.ipa ready in packages/:"
+          ls -lh packages/
 
       # ── Upload artifacts ─────────────────────────────────────
       - name: Upload artifacts (.deb and .ipa)
