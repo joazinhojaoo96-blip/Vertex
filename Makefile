@@ -9,7 +9,6 @@ vertex_FILES := src/main.m src/kexploit.c src/trustcache.c src/zip.c src/install
 vertex_CFLAGS := -Iinclude -fobjc-arc -Wall -Wextra -Wno-unused-parameter
 vertex_LDFLAGS := -lz
 vertex_FRAMEWORKS := Foundation MobileCoreServices Security
-vertex_PRIVATE_FRAMEWORKS := MobileContainerManager
 vertex_CODESIGN_FLAGS := -Sentitlements.plist
 vertex_RESOURCE_DIRS := Resources
 

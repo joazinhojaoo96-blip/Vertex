@@ -38,77 +38,40 @@ jobs:
           git clone --recursive --depth=1 \
             https://github.com/theos/theos.git "$THEOS"
 
-      # ── Toolchain: ProcursusTeam linux clang (static, no libLLVM dep) ──
+      # ── Toolchain: arm64e LLVM clang ──────────────────────────
       - name: Install iOS toolchain
         run: |
           set -euo pipefail
           TOOLCHAIN_DIR="$THEOS/toolchain/linux/iphone"
           mkdir -p "$TOOLCHAIN_DIR"
 
-          # ProcursusTeam ships a self-contained clang for cross-compiling to iOS
-          TC_URL="https://github.com/ProcursusTeam/ldid/releases/latest"
-          # Use the Theos-recommended toolchain installer
-          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
-            -o /tmp/theos-installer.sh || true
-
-          # Direct approach: grab the Procursus toolchain tarball
-          # This is the same toolchain theos CI uses internally
-          ARCH="$(uname -m)"
-          if [ "$ARCH" = "x86_64" ]; then
-            TC_ARCHIVE="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
-          else
-            TC_ARCHIVE="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
-          fi
-
-          # Download and extract
+          TC_ARCHIVE="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
           curl -fL --retry 3 -o /tmp/toolchain.tar.lzma "$TC_ARCHIVE"
           TMP=$(mktemp -d)
           tar --lzma -xf /tmp/toolchain.tar.lzma -C "$TMP"
           mv "$TMP"/ios-arm64e-clang-toolchain/* "$TOOLCHAIN_DIR/"
           rm -rf "$TMP" /tmp/toolchain.tar.lzma
 
-          # The sbingner clang is dynamically linked against libLLVM-10.so
-          # which ships INSIDE the toolchain archive under lib/
-          # We need to find it and set up the library path
           LLVM_LIB=$(find "$TOOLCHAIN_DIR" -name 'libLLVM*.so*' -printf '%h\n' -quit 2>/dev/null || true)
-
           if [ -z "$LLVM_LIB" ]; then
-            echo "::warning::libLLVM not found in toolchain, trying system LLVM-10"
-            # Install LLVM-10 from the ubuntu repos as fallback
-            sudo apt-get install -y --no-install-recommends libllvm10 || \
-            sudo apt-get install -y --no-install-recommends libllvm11 || \
-            sudo apt-get install -y --no-install-recommends libllvm12 || \
-            sudo apt-get install -y --no-install-recommends libllvm14 || true
-
-            # Create a shim: find whatever libLLVM is available and symlink
-            SYS_LLVM=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libLLVM-*.so*' -type f 2>/dev/null | head -1)
-            if [ -n "$SYS_LLVM" ]; then
-              LLVM_DIR=$(dirname "$SYS_LLVM")
-              ln -sf "$SYS_LLVM" "$LLVM_DIR/libLLVM-10.so" 2>/dev/null || true
-              ln -sf "$SYS_LLVM" "$TOOLCHAIN_DIR/lib/libLLVM-10.so" 2>/dev/null || true
-              LLVM_LIB="$LLVM_DIR"
-            fi
+            LLVM_LIB="$TOOLCHAIN_DIR/lib"
           fi
 
-          # Strip stale RPATH entries from toolchain binaries
-          for f in "$TOOLCHAIN_DIR/bin"/*; do
-            [ -f "$f" ] && file "$f" | grep -q ELF && patchelf --remove-rpath "$f" 2>/dev/null || true
-          done
-
-          # Verify clang works
-          export LD_LIBRARY_PATH="${LLVM_LIB:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="${LLVM_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           "$TOOLCHAIN_DIR/bin/clang" --version
           echo "LLVM_LIB=$LLVM_LIB" >> "$GITHUB_ENV"
 
       # ── iOS SDKs ─────────────────────────────────────────────
       - name: Install iOS SDKs
         run: |
+          rm -rf "$THEOS/sdks"
           git clone --depth=1 \
             https://github.com/theos/sdks.git "$THEOS/sdks"
 
       # ── ldid (codesign tool) ─────────────────────────────────
       - name: Install ldid
         run: |
+          mkdir -p "$THEOS/bin"
           if ! command -v ldid &>/dev/null && [ ! -x "$THEOS/bin/ldid" ]; then
             curl -fsSL -o "$THEOS/bin/ldid" \
               "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64"
