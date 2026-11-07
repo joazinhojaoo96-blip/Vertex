@@ -6,13 +6,14 @@
 #import <StoreKit/StoreKit.h>
 #import <objc/runtime.h>
 
+static NSHashTable *g_observers = nil;
+
 static NSHashTable<id<SKPaymentTransactionObserver>> *vt_observers(void) {
-    static NSHashTable *table;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        table = [NSHashTable weakObjectsHashTable];
+        g_observers = [NSHashTable weakObjectsHashTable];
     });
-    return table;
+    return g_observers;
 }
 
 #pragma mark - synthetic transactions

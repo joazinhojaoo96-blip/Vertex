@@ -6,7 +6,8 @@ include $(THEOS)/makefiles/common.mk
 LIBRARY_NAME := vertexhook
 
 vertexhook_FILES := vertexhook.m
-vertexhook_CFLAGS := -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-ignored-attributes -Wno-error
+vertexhook_CFLAGS := -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-ignored-attributes -Wno-error -fno-threadsafe-statics
+vertexhook_LDFLAGS := -lc++
 vertexhook_FRAMEWORKS := Foundation StoreKit
 vertexhook_INSTALL_PATH := /Library/Vertex
 
