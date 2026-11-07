@@ -29,17 +29,10 @@ jobs:
 
       - name: install ios toolchain
         run: |
-          curl -fsSL -o iOSToolchain.tar.xz \
-            https://github.com/L1ghtmann/iOSToolchain-x86_64.tar.xz
-          mkdir -p "$HOME/tc-extract"
-          tar -xJf iOSToolchain.tar.xz -C "$HOME/tc-extract"
-          if [ -d "$HOME/tc-extract/toolchain" ]; then
-            mv "$HOME/tc-extract/toolchain" "$HOME/theos/toolchain"
-          else
-            mkdir -p "$HOME/theos/toolchain"
-            mv "$HOME/tc-extract"/* "$HOME/theos/toolchain/"
-          fi
-          rm -rf "$HOME/tc-extract" iOSToolchain.tar.xz
+          # kabiroberai swift-toolchain-linux — the verified Theos Linux toolchain
+          curl -fsSL \
+            https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.2.2/toolchain-linux.tar.gz \
+            | tar -xz -C "$HOME/theos/toolchain"
 
       - name: install ldid
         run: |
