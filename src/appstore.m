@@ -144,7 +144,8 @@ static int64_t VTSInt64(id v) {
     it.bundleId  = VTSString(d[@"bundleId"]);
     it.artwork   = VTSString(d[@"artworkUrl100"]);
     if (it.artwork.length == 0) it.artwork = VTSString(d[@"artworkUrl512"]);
-    it.genre     = VTSString(d[@"genres"].firstObject);
+    NSArray *genres = [d[@"genres"] isKindOfClass:[NSArray class]] ? (NSArray *)d[@"genres"] : nil;
+    it.genre     = VTSString(genres.firstObject);
     if (it.genre.length == 0) it.genre = VTSString(d[@"primaryGenreName"]);
     it.price     = 0.0;
     it.currency  = @"USD";
