@@ -43,7 +43,7 @@ static NSHashTable<id<SKPaymentTransactionObserver>> *vt_observers(void) {
 static void vt_deliver(SKPaymentTransaction *tx) {
     NSArray *obs;
     @synchronized (vt_observers()) {
-        obs = vt_observers().allObjects;
+        obs = [vt_observers() allObjects];
     }
     if (obs.count == 0) return;
 
@@ -60,7 +60,7 @@ static void vt_deliver(SKPaymentTransaction *tx) {
 static void vt_deliverFinish(void) {
     NSArray *obs;
     @synchronized (vt_observers()) {
-        obs = vt_observers().allObjects;
+        obs = [vt_observers() allObjects];
     }
     if (obs.count == 0) return;
 
