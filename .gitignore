@@ -1,0 +1,6 @@
+powershell.exe
+.theos/
+packages/
+Payload/
+*.deb
+*.ipa

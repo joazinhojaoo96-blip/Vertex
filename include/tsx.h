@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifndef NS_FORMAT_ARGUMENT
+#define NS_FORMAT_ARGUMENT(A)
+#endif
+
 #define TSX_HASH_LEN     20
 #define TSX_PAGE_SIZE    0x1000
 #define TSX_TC_HDR       16
