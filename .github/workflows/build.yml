@@ -17,8 +17,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential fakeroot git perl dpkg-dev curl xz-utils lzma \
-            libtinfo6 libxml2 libncurses6 zlib1g patchelf
+            build-essential fakeroot git perl dpkg-dev curl xz-utils \
+            libtinfo-dev libxml2-dev libncurses-dev zlib1g-dev patchelf file
+          # shim .so.5 names for sbingner toolchain linked against older ubuntu
+          for lib in libtinfo libncurses; do
+            versioned=$(find /usr/lib/x86_64-linux-gnu -name "${lib}.so.*" | sort -V | tail -1)
+            dst="/usr/lib/x86_64-linux-gnu/${lib}.so.5"
+            [ -n "$versioned" ] && [ ! -f "$dst" ] && sudo ln -sf "$versioned" "$dst"
+          done
 
       - name: install theos
         run: |
@@ -38,19 +44,13 @@ jobs:
           mkdir -p "$HOME/theos/toolchain/linux/iphone"
           mv "$TMP"/ios-arm64e-clang-toolchain/* "$HOME/theos/toolchain/linux/iphone/"
           rm -rf "$TMP" /tmp/toolchain.tar.lzma
-          # strip embedded RPATH from every ELF in the toolchain bin dir
-          # so the system linker resolves libs from /usr/lib instead of stale paths
+          # strip stale RPATH from every ELF so the system linker resolves libs
           BINDIR="$HOME/theos/toolchain/linux/iphone/bin"
           for f in "$BINDIR"/*; do
-            [ -f "$f" ] && file "$f" | grep -q ELF && patchelf --remove-rpath "$f" 2>/dev/null || true
+            if [ -f "$f" ] && file "$f" | grep -q ELF; then
+              patchelf --remove-rpath "$f" 2>/dev/null || true
+            fi
           done
-          # shim .so.5 names for older-linked binaries
-          for lib in libtinfo libncurses; do
-            src="/usr/lib/x86_64-linux-gnu/${lib}.so.6"
-            dst="/usr/lib/x86_64-linux-gnu/${lib}.so.5"
-            [ -f "$src" ] && [ ! -f "$dst" ] && sudo ln -sf "$src" "$dst"
-          done
-          # verify clang loads cleanly
           "$HOME/theos/toolchain/linux/iphone/bin/clang" --version
 
       - name: install ldid
