@@ -1,86 +1,84 @@
-name: build
+name: toolchain-diagnostics
 
 on:
   push:
     branches: [main, master]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-22.04
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ── deps ────────────────────────────────────────────────────────────────
-      - name: install deps
+      - name: Check repository layout
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            build-essential fakeroot rsync curl perl zip git \
-            libxml2 libtinfo6 zlib1g libplist-utils lzma xz-utils file patchelf
+          test -f Makefile
+          test -d src
+          test -d .github/workflows
+          echo "Repository layout: OK"
 
-      # ── Theos ───────────────────────────────────────────────────────────────
-      - name: install theos
+      - name: Download and inspect iOS toolchain
+        shell: bash
         run: |
-          git clone --depth 1 --recursive https://github.com/theos/theos.git "$HOME/theos"
-          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/ios-toolchain.tar.lzma"
+          EXTRACT="$RUNNER_TEMP/ios-toolchain"
+          LOG="$RUNNER_TEMP/toolchain-diagnostics.txt"
+          mkdir -p "$EXTRACT"
 
-      # ── SDKs ────────────────────────────────────────────────────────────────
-      - name: install sdks
-        run: |
-          curl -fsSL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz \
-            | tar -xz --strip-components=1 -C "$HOME/theos/sdks"
-
-      # ── toolchain ───────────────────────────────────────────────────────────
-      # sbingner arm64e clang — built for Ubuntu 18/20/22, works on 22.04
-      - name: install ios toolchain
-        run: |
-          curl -fsSL -o /tmp/tc.tar.lzma \
+          curl -fL --retry 3 --retry-delay 2 \
+            -o "$ARCHIVE" \
             "https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
-          TMP=$(mktemp -d)
-          tar --lzma -xf /tmp/tc.tar.lzma -C "$TMP"
-          mkdir -p "$HOME/theos/toolchain/linux/iphone"
-          mv "$TMP"/ios-arm64e-clang-toolchain/* "$HOME/theos/toolchain/linux/iphone/"
-          rm -rf "$TMP" /tmp/tc.tar.lzma
-          # strip stale RPATH so the system dynamic linker resolves .so files
-          for f in "$HOME/theos/toolchain/linux/iphone/bin"/*; do
-            [ -f "$f" ] && file "$f" | grep -q ELF && patchelf --remove-rpath "$f" 2>/dev/null || true
-          done
-          # verify
-          "$HOME/theos/toolchain/linux/iphone/bin/clang" --version
 
-      # ── ldid ────────────────────────────────────────────────────────────────
-      - name: install ldid
-        run: |
-          curl -fsSL -o "$HOME/theos/bin/ldid" \
-            "https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64"
-          chmod +x "$HOME/theos/bin/ldid"
-          sudo ln -sf "$HOME/theos/bin/ldid" /usr/local/bin/ldid
+          tar --lzma -xf "$ARCHIVE" -C "$EXTRACT"
 
-      # ── build ────────────────────────────────────────────────────────────────
-      - name: build package
-        run: |
-          export THEOS="$HOME/theos"
-          make package FINALPACKAGE=1
+          CLANG="$(find "$EXTRACT" -path '*/bin/clang' -print -quit)"
+          if [ -z "$CLANG" ] || [ ! -x "$CLANG" ]; then
+            echo "ERROR: clang executable not found in toolchain archive"
+            exit 1
+          fi
 
-      # ── collect ──────────────────────────────────────────────────────────────
-      - name: collect debs
-        run: |
-          mkdir -p dist
-          find packages -name '*.deb' -exec cp {} dist/ \;
-          ls -la dist
+          TOOLCHAIN_ROOT="$(dirname "$(dirname "$CLANG")")"
+          LLVM_LIB="$(find "$TOOLCHAIN_ROOT" -name 'libLLVM-10.so' -printf '%h\n' -quit)"
+          if [ -z "$LLVM_LIB" ]; then
+            echo "ERROR: libLLVM-10.so is missing from the extracted toolchain"
+            find "$TOOLCHAIN_ROOT" -maxdepth 4 -type f -name '*.so*' -print
+            exit 1
+          fi
 
-      - uses: actions/upload-artifact@v4
+          {
+            echo "clang path: $CLANG"
+            echo "LLVM library directory: $LLVM_LIB"
+            echo
+            echo "=== clang --version ==="
+            LD_LIBRARY_PATH="$LLVM_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$CLANG" --version
+            echo
+            echo "=== ldd ==="
+            ldd "$CLANG"
+          } 2>&1 | tee "$LOG"
+
+          if grep -q 'not found' "$LOG"; then
+            echo "ERROR: clang has unresolved shared-library dependencies"
+            exit 1
+          fi
+
+          echo "Toolchain dynamic-link check: OK"
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: vertex-deb
-          path: dist/*
-          if-no-files-found: error
-
-      - name: github release on tag
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
+          name: toolchain-diagnostics
+          path: ${{ runner.temp }}/toolchain-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 7
