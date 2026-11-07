@@ -1,0 +1,9 @@
+Package: com.vertex.tool
+Name: Vertex
+Depends: firmware (>= 14.0)
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Vertex jailbreak kernel exploit installer and VertexStore client for iOS.
+Maintainer: joazinhojaoo96 <joazinhojaoo96@gmail.com>
+Author: joazinhojaoo96 <joazinhojaoo96@gmail.com>
+Section: Utilities

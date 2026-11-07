@@ -4,3 +4,4 @@ packages/
 Payload/
 *.deb
 *.ipa
+*.txt
