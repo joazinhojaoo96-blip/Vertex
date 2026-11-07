@@ -17,6 +17,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential fakeroot git perl libtinfo6 dpkg-dev curl xz-utils lzma
+          # sbingner toolchain needs libtinfo.so.5; ubuntu-22/24 ships libtinfo.so.6
+          if [ ! -f /usr/lib/x86_64-linux-gnu/libtinfo.so.5 ]; then
+            sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 \
+                        /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
 
       - name: install theos
         run: |
@@ -29,7 +34,6 @@ jobs:
 
       - name: install ios toolchain
         run: |
-          # sbingner arm64e clang toolchain — the one theos wiki documents for Linux ObjC
           curl -fsSL -o /tmp/toolchain.tar.lzma \
             https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma
           TMP=$(mktemp -d)
