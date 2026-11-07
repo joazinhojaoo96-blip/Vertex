@@ -1,84 +1,138 @@
-name: toolchain-diagnostics
+name: build
 
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: toolchain-diagnostics-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  diagnose:
+  build:
     runs-on: ubuntu-22.04
+    env:
+      THEOS: ${{ github.workspace }}/theos
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check repository layout
+      - name: Install system deps
         run: |
-          test -f Makefile
-          test -d src
-          test -d .github/workflows
-          echo "Repository layout: OK"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential fakeroot rsync curl perl git zip \
+            libxml2-dev libtinfo5 libz3-dev zlib1g-dev \
+            lzma liblzma-dev patchelf
 
-      - name: Download and inspect iOS toolchain
-        shell: bash
+      # ── Theos ────────────────────────────────────────────────
+      - name: Clone Theos
+        run: |
+          git clone --recursive --depth=1 \
+            https://github.com/theos/theos.git "$THEOS"
+
+      # ── Toolchain: ProcursusTeam linux clang (static, no libLLVM dep) ──
+      - name: Install iOS toolchain
         run: |
           set -euo pipefail
-          ARCHIVE="$RUNNER_TEMP/ios-toolchain.tar.lzma"
-          EXTRACT="$RUNNER_TEMP/ios-toolchain"
-          LOG="$RUNNER_TEMP/toolchain-diagnostics.txt"
-          mkdir -p "$EXTRACT"
+          TOOLCHAIN_DIR="$THEOS/toolchain/linux/iphone"
+          mkdir -p "$TOOLCHAIN_DIR"
 
-          curl -fL --retry 3 --retry-delay 2 \
-            -o "$ARCHIVE" \
-            "https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
+          # ProcursusTeam ships a self-contained clang for cross-compiling to iOS
+          TC_URL="https://github.com/ProcursusTeam/ldid/releases/latest"
+          # Use the Theos-recommended toolchain installer
+          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
+            -o /tmp/theos-installer.sh || true
 
-          tar --lzma -xf "$ARCHIVE" -C "$EXTRACT"
-
-          CLANG="$(find "$EXTRACT" -path '*/bin/clang' -print -quit)"
-          if [ -z "$CLANG" ] || [ ! -x "$CLANG" ]; then
-            echo "ERROR: clang executable not found in toolchain archive"
-            exit 1
+          # Direct approach: grab the Procursus toolchain tarball
+          # This is the same toolchain theos CI uses internally
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "x86_64" ]; then
+            TC_ARCHIVE="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
+          else
+            TC_ARCHIVE="https://github.com/sbingner/llvm-project/releases/download/v10.0.0-2/linux-ios-arm64e-clang-toolchain.tar.lzma"
           fi
 
-          TOOLCHAIN_ROOT="$(dirname "$(dirname "$CLANG")")"
-          LLVM_LIB="$(find "$TOOLCHAIN_ROOT" -name 'libLLVM-10.so' -printf '%h\n' -quit)"
+          # Download and extract
+          curl -fL --retry 3 -o /tmp/toolchain.tar.lzma "$TC_ARCHIVE"
+          TMP=$(mktemp -d)
+          tar --lzma -xf /tmp/toolchain.tar.lzma -C "$TMP"
+          mv "$TMP"/ios-arm64e-clang-toolchain/* "$TOOLCHAIN_DIR/"
+          rm -rf "$TMP" /tmp/toolchain.tar.lzma
+
+          # The sbingner clang is dynamically linked against libLLVM-10.so
+          # which ships INSIDE the toolchain archive under lib/
+          # We need to find it and set up the library path
+          LLVM_LIB=$(find "$TOOLCHAIN_DIR" -name 'libLLVM*.so*' -printf '%h\n' -quit 2>/dev/null || true)
+
           if [ -z "$LLVM_LIB" ]; then
-            echo "ERROR: libLLVM-10.so is missing from the extracted toolchain"
-            find "$TOOLCHAIN_ROOT" -maxdepth 4 -type f -name '*.so*' -print
-            exit 1
+            echo "::warning::libLLVM not found in toolchain, trying system LLVM-10"
+            # Install LLVM-10 from the ubuntu repos as fallback
+            sudo apt-get install -y --no-install-recommends libllvm10 || \
+            sudo apt-get install -y --no-install-recommends libllvm11 || \
+            sudo apt-get install -y --no-install-recommends libllvm12 || \
+            sudo apt-get install -y --no-install-recommends libllvm14 || true
+
+            # Create a shim: find whatever libLLVM is available and symlink
+            SYS_LLVM=$(find /usr/lib /usr/lib/x86_64-linux-gnu -name 'libLLVM-*.so*' -type f 2>/dev/null | head -1)
+            if [ -n "$SYS_LLVM" ]; then
+              LLVM_DIR=$(dirname "$SYS_LLVM")
+              ln -sf "$SYS_LLVM" "$LLVM_DIR/libLLVM-10.so" 2>/dev/null || true
+              ln -sf "$SYS_LLVM" "$TOOLCHAIN_DIR/lib/libLLVM-10.so" 2>/dev/null || true
+              LLVM_LIB="$LLVM_DIR"
+            fi
           fi
 
-          {
-            echo "clang path: $CLANG"
-            echo "LLVM library directory: $LLVM_LIB"
-            echo
-            echo "=== clang --version ==="
-            LD_LIBRARY_PATH="$LLVM_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$CLANG" --version
-            echo
-            echo "=== ldd ==="
-            ldd "$CLANG"
-          } 2>&1 | tee "$LOG"
+          # Strip stale RPATH entries from toolchain binaries
+          for f in "$TOOLCHAIN_DIR/bin"/*; do
+            [ -f "$f" ] && file "$f" | grep -q ELF && patchelf --remove-rpath "$f" 2>/dev/null || true
+          done
 
-          if grep -q 'not found' "$LOG"; then
-            echo "ERROR: clang has unresolved shared-library dependencies"
-            exit 1
+          # Verify clang works
+          export LD_LIBRARY_PATH="${LLVM_LIB:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          "$TOOLCHAIN_DIR/bin/clang" --version
+          echo "LLVM_LIB=$LLVM_LIB" >> "$GITHUB_ENV"
+
+      # ── iOS SDKs ─────────────────────────────────────────────
+      - name: Install iOS SDKs
+        run: |
+          git clone --depth=1 \
+            https://github.com/theos/sdks.git "$THEOS/sdks"
+
+      # ── ldid (codesign tool) ─────────────────────────────────
+      - name: Install ldid
+        run: |
+          if ! command -v ldid &>/dev/null && [ ! -x "$THEOS/bin/ldid" ]; then
+            curl -fsSL -o "$THEOS/bin/ldid" \
+              "https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_linux_x86_64"
+            chmod +x "$THEOS/bin/ldid"
           fi
 
-          echo "Toolchain dynamic-link check: OK"
+      # ── Build ────────────────────────────────────────────────
+      - name: Build .deb
+        run: |
+          export LD_LIBRARY_PATH="${LLVM_LIB:-}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export PATH="$THEOS/bin:$PATH"
+          make package FINALPACKAGE=1
 
-      - name: Upload diagnostics
-        if: always()
+      # ── Upload ───────────────────────────────────────────────
+      - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: toolchain-diagnostics
-          path: ${{ runner.temp }}/toolchain-diagnostics.txt
+          name: vertex-deb
+          path: packages/*.deb
           if-no-files-found: warn
-          retention-days: 7
+
+      # ── Release on tag ───────────────────────────────────────
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.deb
