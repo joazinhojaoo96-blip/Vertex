@@ -101,10 +101,7 @@ static int cmd_install(char *ipa_path, bool force) {
 out:
     ;
     // extraction tree only, nothing else lives under the mkdtemp dir
-    char cmd[4200];
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmp);
-    if (system(cmd) != 0)
-        fprintf(stderr, "warn: cleanup of %s failed\n", tmp);
+    [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:tmp] error:nil];
     return rc;
 }
 

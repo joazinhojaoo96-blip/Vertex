@@ -13,6 +13,16 @@
 
 #define IOS(x) NSLog(@"[tsx] %s", (x))
 
+typedef struct __SecCode const *SecStaticCodeRef;
+typedef uint32_t SecCSFlags;
+enum {
+    kSecCSDefaultFlags = 0,
+    kSecCSSigningInformation = 2
+};
+extern const CFStringRef kSecCodeInfoEntitlementsDict;
+extern OSStatus SecStaticCodeCreateWithPath(CFURLRef path, SecCSFlags flags, SecStaticCodeRef *staticCode);
+extern OSStatus SecCodeCopySigningInformation(SecStaticCodeRef code, SecCSFlags flags, CFDictionaryRef *signingInformation);
+
 static NSDictionary *dumpEntitlements(NSString *binaryPath) {
     SecStaticCodeRef code = NULL;
     CFURLRef url = (__bridge CFURLRef)[NSURL fileURLWithPath:binaryPath];

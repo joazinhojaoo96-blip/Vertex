@@ -109,10 +109,7 @@ static int AcqInstall(NSString *ipaPath, bool force, NSError **err) {
                 [NSString stringWithFormat:@"install: %s", tsx_strerror(rc)]);
     }
 
-    char cmd[4300];
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", tmp);
-    if (system(cmd) != 0)
-        fprintf(stderr, "warn: cleanup of %s failed\n", tmp);
+    [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:tmp] error:nil];
     return rc;
 }
 
