@@ -18,10 +18,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential fakeroot git perl libtinfo6 dpkg-dev curl xz-utils
 
-      - name: install theos + sdks
+      - name: install theos
         run: |
           git clone --depth 1 --recursive https://github.com/theos/theos.git "$HOME/theos"
-          git clone --depth 1 https://github.com/theos/sdks.git "$HOME/theos/sdks"
+
+      - name: install sdks
+        run: |
+          curl -fsSL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz \
+            | tar -xz --strip-components=1 -C "$HOME/theos/sdks"
 
       - name: install ios toolchain
         run: |
